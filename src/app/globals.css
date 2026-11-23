@@ -109,6 +109,7 @@ h1 {
   color: var(--ink);
   border-radius: 22px;
   padding: 22px 18px;
+  overflow: visible;
   box-shadow:
     0 0 0 3px var(--gold-deep),
     0 18px 40px rgba(0, 0, 0, 0.28);
@@ -378,14 +379,15 @@ input:focus {
 }
 
 .present {
-  width: 168px;
-  height: 148px;
+  width: 188px;
+  height: 180px;
   margin: 8px auto 16px;
   position: relative;
   perspective: 700px;
   border: 0;
   background: transparent;
   cursor: pointer;
+  overflow: visible;
 }
 
 .present:disabled {
@@ -428,13 +430,14 @@ input:focus {
   position: absolute;
   left: 10px;
   right: 10px;
-  top: 18px;
-  height: 48px;
+  top: 36px;
+  height: 52px;
   background: linear-gradient(180deg, #ff5a62, #c22730);
   border-radius: 10px;
-  transform-origin: left center;
-  z-index: 2;
+  transform-origin: 12% 90%;
+  z-index: 3;
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.12);
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.9s ease;
 }
 
 .present-lid .bow-left,
@@ -459,12 +462,13 @@ input:focus {
   animation: pulse 1.6s ease-in-out infinite;
 }
 
-.present.opening .present-lid {
-  animation: lid-open 0.85s ease-in forwards;
+.present.opening .present-lid,
+.present.opened .present-lid {
+  transform: rotate(-78deg) translate(-8px, -18px);
+  opacity: 0.35;
 }
 
 .present.opened .present-lid {
-  transform: translate(-18px, -56px) rotate(-42deg);
   opacity: 0;
 }
 
@@ -486,11 +490,13 @@ input:focus {
   padding: 6px 8px;
   opacity: 0;
   transform: translateY(18px) scale(0.86);
+  transition: transform 0.7s 0.25s ease, opacity 0.7s 0.25s ease;
 }
 
 .present.opening .secret,
 .present.opened .secret {
-  animation: rise 0.7s 0.35s ease-out forwards;
+  opacity: 1;
+  transform: translateY(-10px) scale(1);
 }
 
 @keyframes pulse {

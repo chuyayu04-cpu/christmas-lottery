@@ -114,7 +114,7 @@ export default function HomePage() {
     window.setTimeout(() => {
       localStorage.setItem(OPENED_KEY, "1");
       setPhase("revealed");
-    }, 1100);
+    }, 1400);
   }
 
   const waiting = state && !state.opened && phase === "form" && !mine;
