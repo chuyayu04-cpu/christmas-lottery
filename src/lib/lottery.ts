@@ -6,6 +6,26 @@ import { sql, withTransaction } from "./db";
 export const PARTICIPANT_LIMIT = 10;
 export const THEME_COUNT = 3;
 export const DEFAULT_QUOTAS = [4, 3, 3] as const;
+export const DEFAULT_THEMES = [
+  {
+    id: "a",
+    name: "療癒補給站",
+    description: "讓收到禮物的人好好放鬆、充電。",
+    quota: 4,
+  },
+  {
+    id: "b",
+    name: "生活升級計畫",
+    description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。",
+    quota: 3,
+  },
+  {
+    id: "c",
+    name: "命運驚喜包",
+    description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。",
+    quota: 3,
+  },
+] as const;
 
 export class LotteryError extends Error {
   constructor(
@@ -21,6 +41,7 @@ export class LotteryError extends Error {
 export type Theme = {
   id: string;
   name: string;
+  description: string;
   quota: number;
   remaining: number;
 };
@@ -55,19 +76,34 @@ function withFileMutex<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export function defaultState(): LotteryState {
-  const letters = ["A", "B", "C"];
   return {
     hostPinHash: null,
     hostSessionHash: null,
     opened: false,
-    themes: letters.map((letter, index) => ({
-      id: String.fromCharCode(97 + index),
-      name: `主題 ${letter}`,
-      quota: DEFAULT_QUOTAS[index],
-      remaining: DEFAULT_QUOTAS[index],
+    themes: DEFAULT_THEMES.map((theme) => ({
+      id: theme.id,
+      name: theme.name,
+      description: theme.description,
+      quota: theme.quota,
+      remaining: theme.quota,
     })),
     draws: [],
   };
+}
+
+function hydrateThemes(themes: Theme[] | undefined): Theme[] {
+  return DEFAULT_THEMES.map((fallback, index) => {
+    const current = themes?.[index];
+    const placeholder = `主題 ${String.fromCharCode(65 + index)}`;
+    const name = current?.name && current.name !== placeholder ? current.name : fallback.name;
+    return {
+      id: current?.id ?? fallback.id,
+      name,
+      description: current?.description?.trim() || fallback.description,
+      quota: current?.quota ?? fallback.quota,
+      remaining: current?.remaining ?? fallback.quota,
+    };
+  });
 }
 
 function cloneState(state: LotteryState): LotteryState {
@@ -79,6 +115,7 @@ async function readFileState(): Promise<LotteryState> {
     const raw = await readFile(FILE_PATH, "utf8");
     const parsed = JSON.parse(raw) as LotteryState;
     if (!parsed?.themes?.length) return defaultState();
+    parsed.themes = hydrateThemes(parsed.themes);
     return parsed;
   } catch {
     return defaultState();
@@ -108,6 +145,7 @@ async function loadPgState(
     return loadPgState(query);
   }
   const data = typeof rows[0].data === "string" ? JSON.parse(rows[0].data) : rows[0].data;
+  data.themes = hydrateThemes(data.themes);
   return { state: data, version: rows[0].version };
 }
 
@@ -190,6 +228,7 @@ export async function getMyResult(token: string | undefined) {
     displayName: draw.displayName,
     themeId: draw.themeId,
     themeName: theme?.name ?? draw.themeId,
+    themeDescription: theme?.description ?? "",
     drawnAt: draw.drawnAt,
   };
 }
@@ -224,6 +263,7 @@ export async function draw(input: { name: string; token?: string }) {
           displayName: mine.displayName,
           themeId: mine.themeId,
           themeName: theme?.name ?? mine.themeId,
+          themeDescription: theme?.description ?? "",
         };
       }
     }
@@ -254,6 +294,7 @@ export async function draw(input: { name: string; token?: string }) {
       displayName,
       themeId: theme.id,
       themeName: theme.name,
+      themeDescription: theme.description,
     };
   });
 }
@@ -314,6 +355,7 @@ export async function getHostState(session: string | undefined) {
     themes: state.themes.map((theme) => ({
       id: theme.id,
       name: theme.name,
+      description: theme.description,
       quota: theme.quota,
       remaining: theme.remaining,
       taken: theme.quota - theme.remaining,
@@ -323,7 +365,7 @@ export async function getHostState(session: string | undefined) {
 
 export async function saveThemes(
   session: string | undefined,
-  themes: { id: string; name: string; quota: number }[],
+  themes: { id: string; name: string; description?: string; quota: number }[],
   open: boolean,
 ) {
   if (!Array.isArray(themes) || themes.length !== THEME_COUNT) {
@@ -341,6 +383,13 @@ export async function saveThemes(
   if (names.some((name) => name.length < 1 || name.length > 20)) {
     throw new LotteryError("主題名稱請填 1 到 20 字", "invalid_name");
   }
+  const descriptions = themes.map((theme, index) => {
+    const text = normalizeName(String(theme.description ?? ""));
+    return text || DEFAULT_THEMES[index].description;
+  });
+  if (descriptions.some((text) => text.length < 1 || text.length > 80)) {
+    throw new LotteryError("主題說明請填 1 到 80 字", "invalid_name");
+  }
 
   await mutate(async (state) => {
     await requireHost(state, session);
@@ -350,6 +399,7 @@ export async function saveThemes(
     state.themes = themes.map((theme, index) => ({
       id: state.themes[index]?.id ?? theme.id,
       name: names[index],
+      description: descriptions[index],
       quota: quotas[index],
       remaining: quotas[index],
     }));
@@ -376,6 +426,7 @@ export async function reveal(session: string | undefined) {
       return {
         displayName: draw.displayName,
         themeName: theme?.name ?? draw.themeId,
+        themeDescription: theme?.description ?? "",
         drawnAt: draw.drawnAt,
       };
     }),

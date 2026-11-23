@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Theme = { id: string; name: string; quota: number; remaining: number; taken: number };
+type Theme = {
+  id: string;
+  name: string;
+  description: string;
+  quota: number;
+  remaining: number;
+  taken: number;
+};
 
 type HostState = {
   setup: boolean;
@@ -19,9 +26,30 @@ type HostState = {
 };
 
 const emptyThemes: Theme[] = [
-  { id: "a", name: "主題 A", quota: 4, remaining: 4, taken: 0 },
-  { id: "b", name: "主題 B", quota: 3, remaining: 3, taken: 0 },
-  { id: "c", name: "主題 C", quota: 3, remaining: 3, taken: 0 },
+  {
+    id: "a",
+    name: "療癒補給站",
+    description: "讓收到禮物的人好好放鬆、充電。",
+    quota: 4,
+    remaining: 4,
+    taken: 0,
+  },
+  {
+    id: "b",
+    name: "生活升級計畫",
+    description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。",
+    quota: 3,
+    remaining: 3,
+    taken: 0,
+  },
+  {
+    id: "c",
+    name: "命運驚喜包",
+    description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。",
+    quota: 3,
+    remaining: 3,
+    taken: 0,
+  },
 ];
 
 export default function HostPage() {
@@ -31,7 +59,9 @@ export default function HostPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [revealed, setRevealed] = useState<{ displayName: string; themeName: string }[] | null>(null);
+  const [revealed, setRevealed] = useState<
+    { displayName: string; themeName: string; themeDescription?: string }[] | null
+  >(null);
   const shareUrl = useMemo(() => (typeof window === "undefined" ? "" : `${window.location.origin}/`), []);
 
   async function refresh() {
@@ -39,7 +69,15 @@ export default function HostPage() {
     const data = (await response.json()) as HostState;
     if (response.ok) {
       setState(data);
-      if (data.themes) setThemes(data.themes);
+      if (data.themes) {
+        setThemes(
+          data.themes.map((theme, index) => ({
+            ...emptyThemes[index],
+            ...theme,
+            description: theme.description || emptyThemes[index].description,
+          })),
+        );
+      }
       if (data.error) setError(data.error);
     } else if (response.status === 401) {
       setState({ setup: true, authenticated: false });
@@ -66,7 +104,7 @@ export default function HostPage() {
       });
       const data = (await response.json()) as {
         error?: string;
-        draws?: { displayName: string; themeName: string }[];
+        draws?: { displayName: string; themeName: string; themeDescription?: string }[];
       };
       if (!response.ok) {
         setError(data.error || "操作失敗");
@@ -167,11 +205,13 @@ export default function HostPage() {
       <section className="card">
         <h2>主題與名額</h2>
         <p className="muted">
-          三個主題，每個名額只能填 3 或 4，合計必須是 10。預設是 4、3、3，可在開放抽籤前改名稱與名額。
+          三個主題已預填名稱與說明，每個名額只能填 3 或 4，合計必須是 10。預設是 4、3、3，開放抽籤前都還可以改。
         </p>
         {themes.map((theme, index) => (
-          <div className="theme-row" key={theme.id}>
+          <div className="theme-edit" key={theme.id}>
+            <label htmlFor={`theme-name-${theme.id}`}>名稱</label>
             <input
+              id={`theme-name-${theme.id}`}
               type="text"
               maxLength={20}
               value={theme.name}
@@ -182,7 +222,21 @@ export default function HostPage() {
                 setThemes(next);
               }}
             />
+            <label htmlFor={`theme-copy-${theme.id}`}>說明</label>
+            <textarea
+              id={`theme-copy-${theme.id}`}
+              maxLength={80}
+              value={theme.description ?? ""}
+              disabled={state.locked}
+              onChange={(event) => {
+                const next = [...themes];
+                next[index] = { ...theme, description: event.target.value };
+                setThemes(next);
+              }}
+            />
+            <label htmlFor={`theme-quota-${theme.id}`}>名額（3 或 4）</label>
             <input
+              id={`theme-quota-${theme.id}`}
               type="number"
               min={3}
               max={4}
@@ -224,6 +278,7 @@ export default function HostPage() {
             <div className="slot" key={theme.id}>
               <div>
                 <strong>{theme.name}</strong>
+                {theme.description ? <p className="note">{theme.description}</p> : null}
                 <div className="bar">
                   <span style={{ width: `${theme.quota ? (theme.remaining / theme.quota) * 100 : 0}%` }} />
                 </div>
@@ -254,8 +309,13 @@ export default function HostPage() {
           <ul className="reveal-list">
             {revealed.map((row) => (
               <li key={row.displayName}>
-                <span>{row.displayName}</span>
-                <strong>{row.themeName}</strong>
+                <div>
+                  <strong>{row.displayName}</strong>
+                </div>
+                <div>
+                  <strong>{row.themeName}</strong>
+                  {row.themeDescription ? <p className="note">{row.themeDescription}</p> : null}
+                </div>
               </li>
             ))}
           </ul>

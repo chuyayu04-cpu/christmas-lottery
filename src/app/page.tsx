@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 
-type Mine = { displayName: string; themeName: string };
+type Mine = { displayName: string; themeName: string; themeDescription?: string };
 type PublicState = {
   opened: boolean;
   complete: boolean;
@@ -97,7 +97,11 @@ export default function HomePage() {
         return;
       }
       localStorage.removeItem(OPENED_KEY);
-      setMine({ displayName: data.displayName, themeName: data.themeName });
+      setMine({
+        displayName: data.displayName,
+        themeName: data.themeName,
+        themeDescription: data.themeDescription,
+      });
       setPhase("wrapped");
       await refresh();
     } catch {
@@ -167,6 +171,7 @@ export default function HomePage() {
                   {mine?.displayName} 抽到的禮物主題是
                 </p>
                 <p className="theme">{mine?.themeName}</p>
+                {mine?.themeDescription ? <p className="theme-copy">{mine.themeDescription}</p> : null}
                 <p className="muted">請保密，等大家抽完再一起拆禮物。</p>
               </div>
             )}

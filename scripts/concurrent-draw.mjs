@@ -44,9 +44,9 @@ await json("/api/host", {
     action: "save",
     open: true,
     themes: [
-      { id: "a", name: "主題 A", quota: 4 },
-      { id: "b", name: "主題 B", quota: 3 },
-      { id: "c", name: "主題 C", quota: 3 },
+      { id: "a", name: "療癒補給站", description: "讓收到禮物的人好好放鬆、充電。", quota: 4 },
+      { id: "b", name: "生活升級計畫", description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。", quota: 3 },
+      { id: "c", name: "命運驚喜包", description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。", quota: 3 },
     ],
   }),
 });

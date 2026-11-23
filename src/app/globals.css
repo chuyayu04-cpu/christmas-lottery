@@ -291,6 +291,41 @@ input:focus {
   color: var(--crimson-dark);
 }
 
+.theme-copy {
+  font-size: 15px;
+  color: var(--ink);
+  margin: 0 8px 10px;
+  line-height: 1.55;
+}
+
+.theme-edit {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #ead7b5;
+}
+
+.theme-edit:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.theme-edit textarea {
+  width: 100%;
+  min-height: 72px;
+  border: 1.5px solid #e0cba6;
+  background: #fff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 16px;
+  color: var(--ink);
+  resize: vertical;
+}
+
+.theme-edit textarea:focus {
+  outline: 2px solid var(--gold-deep);
+  border-color: var(--gold-deep);
+}
+
 .theme-row {
   display: grid;
   grid-template-columns: 1fr 72px;
