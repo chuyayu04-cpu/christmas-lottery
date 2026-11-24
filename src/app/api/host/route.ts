@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       action?: string;
       pin?: string;
+      setupSecret?: string;
       themes?: { id: string; name: string; quota: number }[];
       open?: boolean;
     };
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
 
     if (action === "setup") {
       rateLimit("host-setup", 5, 15 * 60_000);
-      const { session } = await setupHost(String(body.pin ?? ""));
+      const { session } = await setupHost(String(body.pin ?? ""), String(body.setupSecret ?? ""));
       const response = json({ ok: true });
       setCookie(response, "host_session", session);
       return response;

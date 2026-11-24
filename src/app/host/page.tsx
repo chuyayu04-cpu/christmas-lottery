@@ -55,6 +55,7 @@ const emptyThemes: Theme[] = [
 export default function HostPage() {
   const [state, setState] = useState<HostState | null>(null);
   const [pin, setPin] = useState("");
+  const [setupSecret, setSetupSecret] = useState("");
   const [themes, setThemes] = useState<Theme[]>(emptyThemes);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -119,8 +120,11 @@ export default function HostPage() {
 
   async function onAuth(event: FormEvent) {
     event.preventDefault();
-    await post({ action: state?.setup ? "login" : "setup", pin });
+    await post(
+      state?.setup ? { action: "login", pin } : { action: "setup", pin, setupSecret },
+    );
     setPin("");
+    setSetupSecret("");
   }
 
   const quotaSum = themes.reduce((sum, theme) => sum + Number(theme.quota || 0), 0);
@@ -144,10 +148,23 @@ export default function HostPage() {
         <p className="lede">
           {state.setup
             ? "輸入 PIN 後可以看剩餘名額、開放抽籤，以及在全部抽完後揭示結果。"
-            : "先設定 4 到 8 位數字 PIN，再改主題名稱與名額。請不要把 PIN 傳給參加者。"}
+            : "先輸入主辦人設定密鑰，再設定 4 到 8 位數字 PIN。密鑰與 PIN 都不要傳給參加者。"}
         </p>
         <section className="card">
           <form onSubmit={onAuth}>
+            {state.setup ? null : (
+              <>
+                <label htmlFor="setupSecret">主辦人設定密鑰</label>
+                <input
+                  id="setupSecret"
+                  type="password"
+                  autoComplete="off"
+                  value={setupSecret}
+                  onChange={(event) => setSetupSecret(event.target.value)}
+                  required
+                />
+              </>
+            )}
             <label htmlFor="pin">主持人 PIN</label>
             <input
               id="pin"

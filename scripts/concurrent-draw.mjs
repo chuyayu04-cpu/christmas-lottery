@@ -18,11 +18,19 @@ function cookieHeader(setCookie) {
 }
 
 const pin = process.env.HOST_PIN?.trim() ?? "";
+const setupSecret = process.env.HOST_SETUP_SECRET?.trim() ?? "";
 if (!/^\d{4,8}$/.test(pin)) {
   console.error("Set HOST_PIN to a 4-8 digit PIN for this local run. Do not commit a PIN.");
   process.exit(1);
 }
-const setup = await json("/api/host", { method: "POST", body: JSON.stringify({ action: "setup", pin }) });
+if (setupSecret.length < 8) {
+  console.error("Set HOST_SETUP_SECRET for this local run. Do not commit a secret.");
+  process.exit(1);
+}
+const setup = await json("/api/host", {
+  method: "POST",
+  body: JSON.stringify({ action: "setup", pin, setupSecret }),
+});
 const login =
   setup.status === 409 || setup.data?.code === "already_setup"
     ? await json("/api/host", { method: "POST", body: JSON.stringify({ action: "login", pin }) })

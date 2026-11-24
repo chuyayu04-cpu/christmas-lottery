@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { hashSecret, randomToken, verifySecret } from "./crypto";
+import { hashSecret, randomToken, secretsMatch, verifySecret } from "./crypto";
 import { sql, withTransaction } from "./db";
 
 export const PARTICIPANT_LIMIT = 10;
@@ -313,7 +313,14 @@ async function requireHost(state: LotteryState, session: string | undefined) {
   }
 }
 
-export async function setupHost(pin: string) {
+export async function setupHost(pin: string, setupSecret: string) {
+  const expected = process.env.HOST_SETUP_SECRET?.trim() ?? "";
+  if (expected.length < 8) {
+    throw new LotteryError("主持人設定尚未就緒", "setup_unconfigured", 503);
+  }
+  if (!secretsMatch(setupSecret.trim(), expected)) {
+    throw new LotteryError("設定密鑰不正確", "invalid_setup_secret", 401);
+  }
   const cleaned = pin.trim();
   if (!/^\d{4,8}$/.test(cleaned)) {
     throw new LotteryError("PIN 請設 4 到 8 位數字", "invalid_pin");
