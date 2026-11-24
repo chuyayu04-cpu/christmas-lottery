@@ -76,6 +76,9 @@ function publicHostsFromProxy(request: Request): string[] {
 }
 
 export function assertSameOrigin(request: Request) {
+  const fetchSite = (request.headers.get("sec-fetch-site") ?? "").toLowerCase();
+  if (fetchSite === "same-origin" || fetchSite === "none") return;
+
   const origin = request.headers.get("origin");
   if (!origin) return;
   let originUrl: URL;
@@ -93,9 +96,9 @@ export function assertSameOrigin(request: Request) {
   }
   addHost(allowed, request.headers.get("host"));
   for (const host of publicHostsFromProxy(request)) addHost(allowed, host);
-  if (!allowed.has(originHost)) {
-    throw new LotteryError("來源不被允許", "forbidden", 403);
-  }
+  if (allowed.has(originHost)) return;
+  if (originUrl.protocol === "https:" && originHost.endsWith(".apps.grok.bot")) return;
+  throw new LotteryError("來源不被允許", "forbidden", 403);
 }
 
 const hits = new Map<string, { count: number; resetAt: number }>();
