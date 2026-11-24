@@ -17,6 +17,8 @@ type HostState = {
   authenticated: boolean;
   opened?: boolean;
   locked?: boolean;
+  loginLocked?: boolean;
+  loginAttemptsLeft?: number;
   complete?: boolean;
   drawnCount?: number;
   participantLimit?: number;
@@ -128,6 +130,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
       };
       if (!response.ok) {
         setError(data.error || "操作失敗");
+        await refresh();
         return data;
       }
       await refresh();
@@ -167,11 +170,11 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
     return (
       <main className="shell">
         <p className="eyebrow">Host</p>
-        <h1>{state.setup ? "主持人登入" : "設定主持人 PIN"}</h1>
+        <h1>{state.setup ? "主持人登入" : "第一次設定"}</h1>
         <p className="lede">
           {state.setup
-            ? "輸入 PIN 後可以看剩餘名額、開放抽籤，以及在全部抽完後揭示結果。"
-            : "先輸入主辦人設定密鑰，再設定 4 到 8 位數字 PIN。密鑰與 PIN 都不要傳給參加者。"}
+            ? "輸入你當初自己設定的 PIN。沒有預設 PIN。輸錯會顯示剩餘次數，連錯太多次會暫時鎖定。"
+            : "先填主辦人設定密鑰，再自己想一組 4 到 8 位數字 PIN。沒有預設 PIN。密鑰與 PIN 都不要傳給參加者。"}
         </p>
         <section className="card">
           <form onSubmit={onAuth}>
@@ -188,21 +191,28 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
                 />
               </>
             )}
-            <label htmlFor="pin">主持人 PIN</label>
+            <label htmlFor="pin">{state.setup ? "主持人 PIN" : "建立你的主持人 PIN"}</label>
             <input
               id="pin"
               type="password"
               inputMode="numeric"
               pattern="\d{4,8}"
               maxLength={8}
-              placeholder="例如 482910"
+              placeholder="4 到 8 位數字"
               value={pin}
               onChange={(event) => setPin(event.target.value)}
               required
+              disabled={Boolean(state.setup && state.loginLocked)}
             />
-            <button className="btn" type="submit" disabled={busy}>
-              {state.setup ? "登入" : "儲存 PIN"}
+            <button className="btn" type="submit" disabled={busy || Boolean(state.setup && state.loginLocked)}>
+              {state.setup ? "登入" : "建立 PIN 並進入"}
             </button>
+            {state.setup && !state.loginLocked && state.loginAttemptsLeft != null ? (
+              <p className="muted">還剩 {state.loginAttemptsLeft} 次登入機會</p>
+            ) : null}
+            {state.setup && state.loginLocked ? (
+              <p className="error">嘗試太多次，請 15 分鐘後再試</p>
+            ) : null}
             {error ? <p className="error">{error}</p> : null}
           </form>
         </section>

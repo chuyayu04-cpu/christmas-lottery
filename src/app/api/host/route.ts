@@ -20,9 +20,18 @@ function sessionOf(request: Request) {
 export async function GET(request: Request) {
   try {
     const status = await hostStatus();
-    if (!status.setup) return json({ setup: false, authenticated: false });
+    if (!status.setup) {
+      return json({ setup: false, authenticated: false });
+    }
     const session = sessionOf(request);
-    if (!session) return json({ setup: true, authenticated: false });
+    if (!session) {
+      return json({
+        setup: true,
+        authenticated: false,
+        loginLocked: status.loginLocked,
+        loginAttemptsLeft: status.loginAttemptsLeft,
+      });
+    }
     const state = await getHostState(session);
     return json({ setup: true, authenticated: true, ...state });
   } catch (error) {
@@ -50,7 +59,7 @@ export async function POST(request: Request) {
       return response;
     }
     if (action === "login") {
-      rateLimit("host-login", 5, 15 * 60_000);
+      rateLimit("host-login", 20, 15 * 60_000);
       const { session } = await loginHost(String(body.pin ?? ""));
       const response = json({ ok: true });
       setCookie(response, "host_session", session);

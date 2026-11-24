@@ -345,7 +345,7 @@ export async function loginHost(pin: string) {
   const outcome = await mutate(async (state) => {
     const now = Date.now();
     if (state.hostLoginLockedUntil && state.hostLoginLockedUntil > now) {
-      return { ok: false as const, code: "locked_out" as const };
+      return { ok: false as const, code: "locked_out" as const, remaining: 0 };
     }
     if (!state.hostPinHash) {
       return { ok: false as const, code: "not_setup" as const };
@@ -356,8 +356,13 @@ export async function loginHost(pin: string) {
       if (failures >= LOGIN_MAX_FAILURES) {
         state.hostLoginLockedUntil = now + LOGIN_LOCKOUT_MS;
         state.hostLoginFailures = 0;
+        return { ok: false as const, code: "locked_out" as const, remaining: 0 };
       }
-      return { ok: false as const, code: "invalid_pin" as const };
+      return {
+        ok: false as const,
+        code: "invalid_pin" as const,
+        remaining: LOGIN_MAX_FAILURES - failures,
+      };
     }
     state.hostLoginFailures = 0;
     state.hostLoginLockedUntil = null;
@@ -366,12 +371,15 @@ export async function loginHost(pin: string) {
   });
   if (!outcome.ok) {
     if (outcome.code === "locked_out") {
-      throw new LotteryError("嘗試太多次，請稍後再試", "locked_out", 429);
+      throw new LotteryError("嘗試太多次，請 15 分鐘後再試", "locked_out", 429);
     }
     if (outcome.code === "not_setup") {
       throw new LotteryError("尚未設定主持人 PIN", "not_setup", 401);
     }
-    throw new LotteryError("PIN 不正確", "invalid_pin", 401);
+    const left = outcome.code === "invalid_pin" ? outcome.remaining : 0;
+    const hint =
+      left <= 1 ? "PIN 不正確，還剩最後 1 次機會" : `PIN 不正確，還剩 ${left} 次機會`;
+    throw new LotteryError(hint, "invalid_pin", 401);
   }
   return { session };
 }
@@ -482,5 +490,12 @@ export async function resetEvent(session: string | undefined) {
 
 export async function hostStatus() {
   const state = await readState();
-  return { setup: Boolean(state.hostPinHash) };
+  const now = Date.now();
+  const loginLocked = Boolean(state.hostLoginLockedUntil && state.hostLoginLockedUntil > now);
+  const failures = state.hostLoginFailures ?? 0;
+  return {
+    setup: Boolean(state.hostPinHash),
+    loginLocked,
+    loginAttemptsLeft: loginLocked ? 0 : Math.max(0, LOGIN_MAX_FAILURES - failures),
+  };
 }
