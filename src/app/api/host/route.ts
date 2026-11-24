@@ -42,14 +42,14 @@ export async function POST(request: Request) {
     const action = body.action ?? "";
 
     if (action === "setup") {
-      rateLimit(request, "host-setup", 8, 60_000);
+      rateLimit("host-setup", 5, 15 * 60_000);
       const { session } = await setupHost(String(body.pin ?? ""));
       const response = json({ ok: true });
       setCookie(response, "host_session", session);
       return response;
     }
     if (action === "login") {
-      rateLimit(request, "host-login", 8, 60_000);
+      rateLimit("host-login", 5, 15 * 60_000);
       const { session } = await loginHost(String(body.pin ?? ""));
       const response = json({ ok: true });
       setCookie(response, "host_session", session);

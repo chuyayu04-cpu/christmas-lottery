@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    rateLimit(request, "draw", 20, 60_000);
+    rateLimit("draw", 40, 60_000);
     const body = (await request.json()) as { name?: string };
     const token = getCookie(request, "lottery_token");
     const result = await draw({ name: String(body.name ?? ""), token });

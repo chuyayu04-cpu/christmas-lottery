@@ -17,7 +17,11 @@ function cookieHeader(setCookie) {
     .join("; ");
 }
 
-const pin = "246813";
+const pin = process.env.HOST_PIN?.trim() ?? "";
+if (!/^\d{4,8}$/.test(pin)) {
+  console.error("Set HOST_PIN to a 4-8 digit PIN for this local run. Do not commit a PIN.");
+  process.exit(1);
+}
 const setup = await json("/api/host", { method: "POST", body: JSON.stringify({ action: "setup", pin }) });
 const login =
   setup.status === 409 || setup.data?.code === "already_setup"

@@ -57,6 +57,8 @@ export type Draw = {
 export type LotteryState = {
   hostPinHash: string | null;
   hostSessionHash: string | null;
+  hostLoginFailures?: number;
+  hostLoginLockedUntil?: number | null;
   opened: boolean;
   themes: Theme[];
   draws: Draw[];
@@ -327,18 +329,43 @@ export async function setupHost(pin: string) {
   return { session };
 }
 
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+
 export async function loginHost(pin: string) {
   const cleaned = pin.trim();
   const session = randomToken();
-  await mutate(async (state) => {
+  const outcome = await mutate(async (state) => {
+    const now = Date.now();
+    if (state.hostLoginLockedUntil && state.hostLoginLockedUntil > now) {
+      return { ok: false as const, code: "locked_out" as const };
+    }
     if (!state.hostPinHash) {
-      throw new LotteryError("尚未設定主持人 PIN", "not_setup", 401);
+      return { ok: false as const, code: "not_setup" as const };
     }
     if (!(await verifySecret(cleaned, state.hostPinHash))) {
-      throw new LotteryError("PIN 不正確", "invalid_pin", 401);
+      const failures = (state.hostLoginFailures ?? 0) + 1;
+      state.hostLoginFailures = failures;
+      if (failures >= LOGIN_MAX_FAILURES) {
+        state.hostLoginLockedUntil = now + LOGIN_LOCKOUT_MS;
+        state.hostLoginFailures = 0;
+      }
+      return { ok: false as const, code: "invalid_pin" as const };
     }
+    state.hostLoginFailures = 0;
+    state.hostLoginLockedUntil = null;
     state.hostSessionHash = await hashSecret(session);
+    return { ok: true as const };
   });
+  if (!outcome.ok) {
+    if (outcome.code === "locked_out") {
+      throw new LotteryError("嘗試太多次，請稍後再試", "locked_out", 429);
+    }
+    if (outcome.code === "not_setup") {
+      throw new LotteryError("尚未設定主持人 PIN", "not_setup", 401);
+    }
+    throw new LotteryError("PIN 不正確", "invalid_pin", 401);
+  }
   return { session };
 }
 

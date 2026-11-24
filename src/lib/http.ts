@@ -60,14 +60,25 @@ export function assertSameOrigin(request: Request) {
 }
 
 const hits = new Map<string, { count: number; resetAt: number }>();
+const MAX_BUCKETS = 256;
 
-export function rateLimit(request: Request, key: string, limit: number, windowMs: number) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const id = `${key}:${ip}`;
+function pruneHits(now: number) {
+  for (const [id, value] of hits) {
+    if (value.resetAt < now) hits.delete(id);
+  }
+  if (hits.size <= MAX_BUCKETS) return;
+  const extra = hits.size - MAX_BUCKETS;
+  const oldest = [...hits.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+  for (let i = 0; i < extra; i += 1) hits.delete(oldest[i][0]);
+}
+
+/** Global, non-IP bucket. Callers must not key this on client-controlled headers. */
+export function rateLimit(key: string, limit: number, windowMs: number) {
   const now = Date.now();
-  const current = hits.get(id);
+  pruneHits(now);
+  const current = hits.get(key);
   if (!current || current.resetAt < now) {
-    hits.set(id, { count: 1, resetAt: now + windowMs });
+    hits.set(key, { count: 1, resetAt: now + windowMs });
     return;
   }
   current.count += 1;
