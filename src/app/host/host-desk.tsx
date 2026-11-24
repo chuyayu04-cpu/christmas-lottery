@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Theme = {
   id: string;
@@ -17,15 +17,12 @@ type HostState = {
   authenticated: boolean;
   opened?: boolean;
   locked?: boolean;
-  loginLocked?: boolean;
-  loginAttemptsLeft?: number;
   complete?: boolean;
   drawnCount?: number;
   participantLimit?: number;
   remainingTotal?: number;
   themes?: Theme[];
   error?: string;
-  devSetupHint?: string;
 };
 
 const emptyThemes: Theme[] = [
@@ -70,19 +67,10 @@ function BackLink({ onBack }: { onBack?: () => void }) {
   );
 }
 
-export default function HostDesk({
-  onBack,
-  initialDevHint,
-}: {
-  onBack?: () => void;
-  initialDevHint?: string;
-}) {
-  const [state, setState] = useState<HostState | null>(
-    initialDevHint ? { setup: false, authenticated: false, devSetupHint: initialDevHint } : null,
-  );
+export default function HostDesk({ onBack }: { onBack?: () => void }) {
+  const [state, setState] = useState<HostState | null>(null);
   const [pin, setPin] = useState("");
-  const [setupSecret, setSetupSecret] = useState(initialDevHint ?? "");
-  const filledHint = useRef(Boolean(initialDevHint));
+  const [setupSecret, setSetupSecret] = useState("");
   const [themes, setThemes] = useState<Theme[]>(emptyThemes);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -98,10 +86,6 @@ export default function HostDesk({
       const data = (await response.json()) as HostState;
       if (response.ok) {
         setState(data);
-        if (data.devSetupHint && !filledHint.current) {
-          filledHint.current = true;
-          setSetupSecret(data.devSetupHint);
-        }
         if (data.themes) {
           setThemes(
             data.themes.map((theme, index) => ({
@@ -187,21 +171,14 @@ export default function HostDesk({
         <h1>{state.setup ? "主持人登入" : "第一次設定"}</h1>
         <p className="lede">
           {state.setup
-            ? "輸入你當初自己設定的 PIN。沒有預設 PIN。輸錯會顯示剩餘次數，連錯太多次會暫時鎖定。"
-            : "先填主辦人設定密鑰，再自己想一組 4 到 8 位數字 PIN。沒有預設 PIN。密鑰與 PIN 都不要傳給參加者。"}
+            ? "輸入你當初自己設定的 PIN。沒有預設 PIN。"
+            : "先填主辦人設定密鑰，再自己想一組 6 到 8 位數字 PIN。沒有預設 PIN。密鑰與 PIN 都不要傳給參加者。"}
         </p>
         <section className="card">
           <form onSubmit={onAuth}>
             {state.setup ? null : (
               <>
-                {state.devSetupHint ? (
-                  <p className="dev-hint">
-                    密鑰在這裡（僅本機預覽會顯示）。請複製或照打到下面欄位：
-                    <code>{state.devSetupHint}</code>
-                  </p>
-                ) : (
-                  <p className="muted">正式網站不會顯示密鑰，請用你在 Cursor Secrets 設的那一組。</p>
-                )}
+                <p className="muted">正式網站不會顯示密鑰，請用你在 Cursor Secrets 設的那一組。本機預覽請用 .env.local 裡的 HOST_SETUP_SECRET。</p>
                 <label htmlFor="setupSecret">主辦人設定密鑰</label>
                 <input
                   id="setupSecret"
@@ -219,23 +196,17 @@ export default function HostDesk({
               id="pin"
               type="password"
               inputMode="numeric"
-              pattern="\d{4,8}"
+              pattern={state.setup ? "\\d{4,8}" : "\\d{6,8}"}
+              minLength={state.setup ? 4 : 6}
               maxLength={8}
-              placeholder="4 到 8 位數字"
+              placeholder={state.setup ? "你當初設定的數字 PIN" : "6 到 8 位數字"}
               value={pin}
               onChange={(event) => setPin(event.target.value)}
               required
-              disabled={Boolean(state.setup && state.loginLocked)}
             />
-            <button className="btn" type="submit" disabled={busy || Boolean(state.setup && state.loginLocked)}>
+            <button className="btn" type="submit" disabled={busy}>
               {state.setup ? "登入" : "建立 PIN 並進入"}
             </button>
-            {state.setup && !state.loginLocked && state.loginAttemptsLeft != null ? (
-              <p className="muted">還剩 {state.loginAttemptsLeft} 次登入機會</p>
-            ) : null}
-            {state.setup && state.loginLocked ? (
-              <p className="error">嘗試太多次，請 15 分鐘後再試</p>
-            ) : null}
             {error ? <p className="error">{error}</p> : null}
           </form>
         </section>

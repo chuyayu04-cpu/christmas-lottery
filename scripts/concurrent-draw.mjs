@@ -19,8 +19,8 @@ function cookieHeader(setCookie) {
 
 const pin = process.env.HOST_PIN?.trim() ?? "";
 const setupSecret = process.env.HOST_SETUP_SECRET?.trim() ?? "";
-if (!/^\d{4,8}$/.test(pin)) {
-  console.error("Set HOST_PIN to a 4-8 digit PIN for this local run. Do not commit a PIN.");
+if (!/^\d{6,8}$/.test(pin)) {
+  console.error("Set HOST_PIN to a 6-8 digit PIN for this local run. Do not commit a PIN.");
   process.exit(1);
 }
 if (setupSecret.length < 8) {

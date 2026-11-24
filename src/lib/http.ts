@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { LotteryError } from "./lottery";
 
 export function json(data: unknown, status = 200): Response {
@@ -96,9 +97,9 @@ export function assertSameOrigin(request: Request) {
   }
   addHost(allowed, request.headers.get("host"));
   for (const host of publicHostsFromProxy(request)) addHost(allowed, host);
-  if (allowed.has(originHost)) return;
-  if (originUrl.protocol === "https:" && originHost.endsWith(".apps.grok.bot")) return;
-  throw new LotteryError("來源不被允許", "forbidden", 403);
+  if (!allowed.has(originHost)) {
+    throw new LotteryError("來源不被允許", "forbidden", 403);
+  }
 }
 
 const hits = new Map<string, { count: number; resetAt: number }>();
@@ -114,7 +115,7 @@ function pruneHits(now: number) {
   for (let i = 0; i < extra; i += 1) hits.delete(oldest[i][0]);
 }
 
-/** Global, non-IP bucket. Callers must not key this on client-controlled headers. */
+/** Named buckets. Do not key on client-controlled headers such as X-Forwarded-For. */
 export function rateLimit(key: string, limit: number, windowMs: number) {
   const now = Date.now();
   pruneHits(now);
@@ -127,4 +128,14 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
   if (current.count > limit) {
     throw new LotteryError("操作太頻繁，請稍候再試", "rate_limited", 429);
   }
+}
+
+export function visitorId(request: Request): { id: string; isNew: boolean } {
+  const existing = getCookie(request, "rl");
+  if (existing && existing.length >= 24) return { id: existing, isNew: false };
+  return { id: randomBytes(16).toString("hex"), isNew: true };
+}
+
+export function attachVisitor(response: Response, id: string) {
+  setCookie(response, "rl", id);
 }
