@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Theme = {
   id: string;
@@ -70,10 +70,19 @@ function BackLink({ onBack }: { onBack?: () => void }) {
   );
 }
 
-export default function HostDesk({ onBack }: { onBack?: () => void }) {
-  const [state, setState] = useState<HostState | null>(null);
+export default function HostDesk({
+  onBack,
+  initialDevHint,
+}: {
+  onBack?: () => void;
+  initialDevHint?: string;
+}) {
+  const [state, setState] = useState<HostState | null>(
+    initialDevHint ? { setup: false, authenticated: false, devSetupHint: initialDevHint } : null,
+  );
   const [pin, setPin] = useState("");
-  const [setupSecret, setSetupSecret] = useState("");
+  const [setupSecret, setSetupSecret] = useState(initialDevHint ?? "");
+  const filledHint = useRef(Boolean(initialDevHint));
   const [themes, setThemes] = useState<Theme[]>(emptyThemes);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -89,6 +98,10 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
       const data = (await response.json()) as HostState;
       if (response.ok) {
         setState(data);
+        if (data.devSetupHint && !filledHint.current) {
+          filledHint.current = true;
+          setSetupSecret(data.devSetupHint);
+        }
         if (data.themes) {
           setThemes(
             data.themes.map((theme, index) => ({
@@ -181,20 +194,24 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
           <form onSubmit={onAuth}>
             {state.setup ? null : (
               <>
+                {state.devSetupHint ? (
+                  <p className="dev-hint">
+                    密鑰在這裡（僅本機預覽會顯示）。請複製或照打到下面欄位：
+                    <code>{state.devSetupHint}</code>
+                  </p>
+                ) : (
+                  <p className="muted">正式網站不會顯示密鑰，請用你在 Cursor Secrets 設的那一組。</p>
+                )}
                 <label htmlFor="setupSecret">主辦人設定密鑰</label>
                 <input
                   id="setupSecret"
-                  type="password"
+                  type="text"
                   autoComplete="off"
+                  spellCheck={false}
                   value={setupSecret}
                   onChange={(event) => setSetupSecret(event.target.value)}
                   required
                 />
-                {state.devSetupHint ? (
-                  <p className="note">
-                    本機預覽請輸入：<strong>{state.devSetupHint}</strong>
-                  </p>
-                ) : null}
               </>
             )}
             <label htmlFor="pin">{state.setup ? "主持人 PIN" : "建立你的主持人 PIN"}</label>

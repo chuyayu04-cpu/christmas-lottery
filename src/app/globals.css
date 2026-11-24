@@ -385,6 +385,25 @@ input:focus {
   color: var(--muted);
 }
 
+.dev-hint {
+  margin: 0 0 14px;
+  padding: 14px 14px 12px;
+  background: #fff4c8;
+  border: 2px dashed var(--gold-deep);
+  border-radius: 14px;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.dev-hint code {
+  display: block;
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+
 .wait {
   text-align: center;
   padding: 18px 8px;
