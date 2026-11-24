@@ -39,7 +39,40 @@ export function setCookie(response: Response, name: string, value: string, maxAg
 }
 
 function canonicalHost(host: string): string {
-  return host.replace(/^127\.0\.0\.1/i, "localhost").replace(/^\[::1\]/i, "localhost");
+  let value = host.trim().toLowerCase();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    const name = end >= 0 ? value.slice(0, end + 1) : value;
+    return name === "[::1]" ? "localhost" : name;
+  }
+  value = value.replace(/:\d+$/, "");
+  if (value === "127.0.0.1") return "localhost";
+  return value;
+}
+
+function addHost(allowed: Set<string>, raw: string | null | undefined) {
+  if (!raw) return;
+  allowed.add(canonicalHost(raw));
+}
+
+function publicHostsFromProxy(request: Request): string[] {
+  const hosts: string[] = [];
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedHost) {
+    const parts = forwardedHost
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) hosts.push(parts[parts.length - 1]);
+  }
+  const forwarded = request.headers.get("forwarded");
+  if (forwarded) {
+    for (const part of forwarded.split(",")) {
+      const match = /host="?([^";,\s]+)"?/i.exec(part);
+      if (match) hosts.push(match[1]);
+    }
+  }
+  return hosts;
 }
 
 export function assertSameOrigin(request: Request) {
@@ -54,12 +87,12 @@ export function assertSameOrigin(request: Request) {
   const originHost = canonicalHost(originUrl.host);
   const allowed = new Set<string>();
   try {
-    allowed.add(canonicalHost(new URL(request.url).host));
+    addHost(allowed, new URL(request.url).host);
   } catch {
     // ignore malformed request URL
   }
-  const hostHeader = request.headers.get("host");
-  if (hostHeader) allowed.add(canonicalHost(hostHeader));
+  addHost(allowed, request.headers.get("host"));
+  for (const host of publicHostsFromProxy(request)) addHost(allowed, host);
   if (!allowed.has(originHost)) {
     throw new LotteryError("來源不被允許", "forbidden", 403);
   }
