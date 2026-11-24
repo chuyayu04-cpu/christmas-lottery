@@ -45,16 +45,22 @@ function canonicalHost(host: string): string {
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return;
-  const url = new URL(request.url);
   let originUrl: URL;
   try {
     originUrl = new URL(origin);
   } catch {
     throw new LotteryError("來源不被允許", "forbidden", 403);
   }
-  const sameLoopback =
-    canonicalHost(originUrl.host) === canonicalHost(url.host) && originUrl.protocol === url.protocol;
-  if (!sameLoopback) {
+  const originHost = canonicalHost(originUrl.host);
+  const allowed = new Set<string>();
+  try {
+    allowed.add(canonicalHost(new URL(request.url).host));
+  } catch {
+    // ignore malformed request URL
+  }
+  const hostHeader = request.headers.get("host");
+  if (hostHeader) allowed.add(canonicalHost(hostHeader));
+  if (!allowed.has(originHost)) {
     throw new LotteryError("來源不被允許", "forbidden", 403);
   }
 }

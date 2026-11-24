@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import HostDesk from "./host/host-desk";
 
 type Mine = { displayName: string; themeName: string; themeDescription?: string };
 type PublicState = {
@@ -55,6 +55,7 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [mine, setMine] = useState<Mine | null>(null);
   const [phase, setPhase] = useState<"form" | "drawing" | "wrapped" | "opening" | "revealed">("form");
+  const [showHost, setShowHost] = useState(false);
 
   async function refresh() {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -119,6 +120,10 @@ export default function HomePage() {
       localStorage.setItem(OPENED_KEY, "1");
       setPhase("revealed");
     }, 1400);
+  }
+
+  if (showHost) {
+    return <HostDesk onBack={() => setShowHost(false)} />;
   }
 
   const waiting = state && !state.opened && phase === "form" && !mine;
@@ -210,9 +215,9 @@ export default function HomePage() {
           </form>
         )}
       </section>
-      <Link className="footer-link" href="/host">
+      <button type="button" className="footer-link" onClick={() => setShowHost(true)}>
         我是主持人
-      </Link>
+      </button>
     </main>
   );
 }
