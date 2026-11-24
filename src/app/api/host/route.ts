@@ -1,6 +1,7 @@
 import { assertSameOrigin, errorResponse, getCookie, json, rateLimit, setCookie } from "@/lib/http";
 import {
   getHostState,
+  developmentSetupHint,
   hostStatus,
   loginHost,
   openEvent,
@@ -21,7 +22,12 @@ export async function GET(request: Request) {
   try {
     const status = await hostStatus();
     if (!status.setup) {
-      return json({ setup: false, authenticated: false });
+      const hint = developmentSetupHint();
+      return json({
+        setup: false,
+        authenticated: false,
+        ...(hint ? { devSetupHint: hint } : {}),
+      });
     }
     const session = sessionOf(request);
     if (!session) {

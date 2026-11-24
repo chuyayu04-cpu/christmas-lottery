@@ -25,6 +25,7 @@ type HostState = {
   remainingTotal?: number;
   themes?: Theme[];
   error?: string;
+  devSetupHint?: string;
 };
 
 const emptyThemes: Theme[] = [
@@ -189,6 +190,11 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
                   onChange={(event) => setSetupSecret(event.target.value)}
                   required
                 />
+                {state.devSetupHint ? (
+                  <p className="note">
+                    本機預覽請輸入：<strong>{state.devSetupHint}</strong>
+                  </p>
+                ) : null}
               </>
             )}
             <label htmlFor="pin">{state.setup ? "主持人 PIN" : "建立你的主持人 PIN"}</label>

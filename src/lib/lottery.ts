@@ -488,6 +488,12 @@ export async function resetEvent(session: string | undefined) {
   });
 }
 
+export function developmentSetupHint(): string | undefined {
+  if (process.env.NODE_ENV !== "development") return undefined;
+  const value = process.env.HOST_SETUP_SECRET?.trim() ?? "";
+  return value.length >= 8 ? value : undefined;
+}
+
 export async function hostStatus() {
   const state = await readState();
   const now = Date.now();
