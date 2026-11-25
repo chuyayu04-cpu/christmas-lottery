@@ -145,9 +145,9 @@ export default function HomePage() {
       <p className="lede">每人只能抽一次。抽中後先是一份還沒打開的禮物，點下去才看得到主題，而且只有你看得到。</p>
       <div className="progress">
         <span>
-          已抽出 {state?.drawnCount ?? 0} / {state?.participantLimit ?? 10} 人
+          已抽出 {state?.drawnCount ?? 0} / {state?.participantLimit ?? 12} 人
         </span>
-        <span>剩餘 {state?.remainingTotal ?? 10} 個名額</span>
+        <span>剩餘 {state?.remainingTotal ?? 12} 個名額</span>
       </div>
 
       <section className="card">

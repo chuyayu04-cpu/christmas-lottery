@@ -57,20 +57,20 @@ await json("/api/host", {
     open: true,
     themes: [
       { id: "a", name: "療癒補給站", description: "讓收到禮物的人好好放鬆、充電。", quota: 4 },
-      { id: "b", name: "生活升級計畫", description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。", quota: 3 },
-      { id: "c", name: "命運驚喜包", description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。", quota: 3 },
+      { id: "b", name: "生活升級計畫", description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。", quota: 4 },
+      { id: "c", name: "命運驚喜包", description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。", quota: 4 },
     ],
   }),
 });
 
-const firstNine = [];
-for (let i = 1; i <= 9; i += 1) {
-  firstNine.push(json("/api/draw", { method: "POST", body: JSON.stringify({ name: `測試${i}` }) }));
+const firstEleven = [];
+for (let i = 1; i <= 11; i += 1) {
+  firstEleven.push(json("/api/draw", { method: "POST", body: JSON.stringify({ name: `測試${i}` }) }));
 }
-const filled = await Promise.all(firstNine);
-const okNine = filled.filter((row) => row.status === 200).length;
-if (okNine !== 9) {
-  console.error("expected 9 successful draws before last-slot race", filled.map((row) => row.data));
+const filled = await Promise.all(firstEleven);
+const okEleven = filled.filter((row) => row.status === 200).length;
+if (okEleven !== 11) {
+  console.error("expected 11 successful draws before last-slot race", filled.map((row) => row.data));
   process.exit(1);
 }
 
@@ -85,7 +85,7 @@ const dup = await json("/api/draw", { method: "POST", body: JSON.stringify({ nam
 console.log(
   JSON.stringify(
     {
-      okNine,
+      okEleven,
       lastWins: wins.length,
       lastLosses: loses.length,
       lastCodes: [a.data.code, b.data.code, a.status, b.status],

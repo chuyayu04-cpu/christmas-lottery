@@ -38,16 +38,16 @@ const emptyThemes: Theme[] = [
     id: "b",
     name: "生活升級計畫",
     description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。",
-    quota: 3,
-    remaining: 3,
+    quota: 4,
+    remaining: 4,
     taken: 0,
   },
   {
     id: "c",
     name: "命運驚喜包",
     description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。",
-    quota: 3,
-    remaining: 3,
+    quota: 4,
+    remaining: 4,
     taken: 0,
   },
 ];
@@ -152,7 +152,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
 
   const quotaSum = themes.reduce((sum, theme) => sum + Number(theme.quota || 0), 0);
   const quotasOk =
-    quotaSum === 10 && themes.every((theme) => theme.quota === 3 || theme.quota === 4);
+    quotaSum === 12 && themes.every((theme) => Number.isInteger(theme.quota) && theme.quota >= 1);
 
   if (!state) {
     return (
@@ -225,7 +225,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
 
       <section className="card">
         <h2>活動連結</h2>
-        <p className="muted">把這個網址傳給 10 位參加者，他們用手機打開就能抽。</p>
+        <p className="muted">把這個網址傳給 12 位參加者，他們用手機打開就能抽。</p>
         <input type="text" readOnly value={shareUrl} />
         <button
           className="btn secondary"
@@ -239,7 +239,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
         </button>
         <p className="muted" style={{ marginTop: 12 }}>
           狀態：{state.opened ? "已開放抽籤" : "尚未開放"} · 已抽 {state.drawnCount ?? 0} /{" "}
-          {state.participantLimit ?? 10} · 剩餘 {state.remainingTotal ?? 0}
+          {state.participantLimit ?? 12} · 剩餘 {state.remainingTotal ?? 0}
         </p>
         {notice ? <p className="copy-ok">{notice}</p> : null}
       </section>
@@ -247,7 +247,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
       <section className="card">
         <h2>主題與名額</h2>
         <p className="muted">
-          三個主題已預填名稱與說明，每個名額只能填 3 或 4，合計必須是 10。預設是 4、3、3，開放抽籤前都還可以改。
+          三個主題已預填名稱與說明，名額為正整數，合計必須是 12。預設是 4、4、4。已有人抽過就不能再改，重置後可以再改。
         </p>
         {themes.map((theme, index) => (
           <div className="theme-edit" key={theme.id}>
@@ -276,12 +276,12 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
                 setThemes(next);
               }}
             />
-            <label htmlFor={`theme-quota-${theme.id}`}>名額（3 或 4）</label>
+            <label htmlFor={`theme-quota-${theme.id}`}>名額</label>
             <input
               id={`theme-quota-${theme.id}`}
               type="number"
-              min={3}
-              max={4}
+              min={1}
+              max={10}
               value={theme.quota}
               disabled={state.locked}
               onChange={(event) => {
@@ -293,7 +293,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
           </div>
         ))}
         <p className={quotasOk ? "note" : "error"}>
-          合計名額：{quotaSum}（必須是 10，且每主題 3 或 4）
+          合計名額：{quotaSum}（必須是 12）
         </p>
         <button
           className="btn secondary"

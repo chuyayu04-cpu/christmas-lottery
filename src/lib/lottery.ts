@@ -3,9 +3,9 @@ import path from "node:path";
 import { hashSecret, randomToken, secretsMatch, verifySecret } from "./crypto";
 import { sql, withTransaction } from "./db";
 
-export const PARTICIPANT_LIMIT = 10;
+export const PARTICIPANT_LIMIT = 12;
 export const THEME_COUNT = 3;
-export const DEFAULT_QUOTAS = [4, 3, 3] as const;
+export const DEFAULT_QUOTAS = [4, 4, 4] as const;
 export const DEFAULT_THEMES = [
   {
     id: "a",
@@ -17,13 +17,13 @@ export const DEFAULT_THEMES = [
     id: "b",
     name: "生活升級計畫",
     description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。",
-    quota: 3,
+    quota: 4,
   },
   {
     id: "c",
     name: "命運驚喜包",
     description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。",
-    quota: 3,
+    quota: 4,
   },
 ] as const;
 
@@ -108,6 +108,20 @@ function hydrateThemes(themes: Theme[] | undefined): Theme[] {
   });
 }
 
+function applyLockedCap(state: LotteryState): LotteryState {
+  state.themes = hydrateThemes(state.themes);
+  state.draws = Array.isArray(state.draws) ? state.draws : [];
+  if (state.draws.length > 0) return state;
+  const sum = state.themes.reduce((total, theme) => total + theme.quota, 0);
+  if (sum === PARTICIPANT_LIMIT) return state;
+  state.themes = state.themes.map((theme, index) => ({
+    ...theme,
+    quota: DEFAULT_QUOTAS[index],
+    remaining: DEFAULT_QUOTAS[index],
+  }));
+  return state;
+}
+
 function cloneState(state: LotteryState): LotteryState {
   return structuredClone(state);
 }
@@ -117,8 +131,7 @@ async function readFileState(): Promise<LotteryState> {
     const raw = await readFile(FILE_PATH, "utf8");
     const parsed = JSON.parse(raw) as LotteryState;
     if (!parsed?.themes?.length) return defaultState();
-    parsed.themes = hydrateThemes(parsed.themes);
-    return parsed;
+    return applyLockedCap(parsed);
   } catch {
     return defaultState();
   }
@@ -147,8 +160,7 @@ async function loadPgState(
     return loadPgState(query);
   }
   const data = typeof rows[0].data === "string" ? JSON.parse(rows[0].data) : rows[0].data;
-  data.themes = hydrateThemes(data.themes);
-  return { state: data, version: rows[0].version };
+  return { state: applyLockedCap(data), version: rows[0].version };
 }
 
 async function mutate<T>(fn: (state: LotteryState) => Promise<T> | T): Promise<T> {
@@ -388,8 +400,9 @@ export async function saveThemes(
     throw new LotteryError("需要剛好 3 個主題", "invalid_quotas");
   }
   const quotas = themes.map((theme) => Number(theme.quota));
-  if (quotas.some((quota) => !Number.isInteger(quota) || quota < 3 || quota > 4)) {
-    throw new LotteryError("每個主題名額只能是 3 或 4", "invalid_quotas");
+  const maxQuota = PARTICIPANT_LIMIT - (THEME_COUNT - 1);
+  if (quotas.some((quota) => !Number.isInteger(quota) || quota < 1 || quota > maxQuota)) {
+    throw new LotteryError(`每個主題名額請填 1 到 ${maxQuota} 的整數`, "invalid_quotas");
   }
   const sum = quotas.reduce((a, b) => a + b, 0);
   if (sum !== PARTICIPANT_LIMIT) {
