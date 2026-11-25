@@ -152,7 +152,10 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
 
   const quotaSum = themes.reduce((sum, theme) => sum + Number(theme.quota || 0), 0);
   const quotasOk =
-    quotaSum === 12 && themes.every((theme) => Number.isInteger(theme.quota) && theme.quota >= 1);
+    quotaSum === 12 &&
+    themes.every(
+      (theme) => Number.isInteger(theme.quota) && theme.quota >= Math.max(1, theme.taken || 0),
+    );
 
   if (!state) {
     return (
@@ -247,7 +250,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
       <section className="card">
         <h2>主題與名額</h2>
         <p className="muted">
-          三個主題已預填名稱與說明，名額為正整數，合計必須是 12。預設是 4、4、4。已有人抽過就不能再改，重置後可以再改。
+          活動固定 12 人。名額為正整數，合計必須是 12，預設 4、4、4。已有人抽過仍可改名額，但不能低於該主題已抽出人數；抽籤紀錄不會清空。
         </p>
         {themes.map((theme, index) => (
           <div className="theme-edit" key={theme.id}>
@@ -276,14 +279,15 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
                 setThemes(next);
               }}
             />
-            <label htmlFor={`theme-quota-${theme.id}`}>名額</label>
+            <label htmlFor={`theme-quota-${theme.id}`}>
+              名額{theme.taken ? `（已抽 ${theme.taken}，不能比較少）` : ""}
+            </label>
             <input
               id={`theme-quota-${theme.id}`}
               type="number"
-              min={1}
+              min={Math.max(1, theme.taken || 0)}
               max={10}
               value={theme.quota}
-              disabled={state.locked}
               onChange={(event) => {
                 const next = [...themes];
                 next[index] = { ...theme, quota: Number(event.target.value) };
@@ -298,7 +302,7 @@ export default function HostDesk({ onBack }: { onBack?: () => void }) {
         <button
           className="btn secondary"
           type="button"
-          disabled={busy || state.locked || !quotasOk}
+          disabled={busy || !quotasOk}
           onClick={() => post({ action: "save", themes, open: false })}
         >
           儲存主題與名額

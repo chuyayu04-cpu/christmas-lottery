@@ -108,18 +108,51 @@ function hydrateThemes(themes: Theme[] | undefined): Theme[] {
   });
 }
 
-function applyLockedCap(state: LotteryState): LotteryState {
+function takenCounts(state: LotteryState): number[] {
+  return state.themes.map((theme) => state.draws.filter((draw) => draw.themeId === theme.id).length);
+}
+
+function quotasTowardLimit(taken: number[]): number[] {
+  const quotas = DEFAULT_QUOTAS.map((quota, index) => Math.max(quota, taken[index] ?? 0));
+  let sum = quotas.reduce((total, quota) => total + quota, 0);
+  if (sum === PARTICIPANT_LIMIT) return quotas;
+  if (sum < PARTICIPANT_LIMIT) {
+    let extra = PARTICIPANT_LIMIT - sum;
+    for (let index = 0; extra > 0; index += 1) {
+      quotas[index % THEME_COUNT] += 1;
+      extra -= 1;
+    }
+    return quotas;
+  }
+  const next = taken.map((count) => count);
+  let extra = PARTICIPANT_LIMIT - next.reduce((total, count) => total + count, 0);
+  for (let index = 0; index < THEME_COUNT && extra > 0; index += 1) {
+    const add = Math.min(extra, Math.max(0, DEFAULT_QUOTAS[index] - next[index]));
+    next[index] += add;
+    extra -= add;
+  }
+  for (let index = 0; extra > 0; index += 1) {
+    next[index % THEME_COUNT] += 1;
+    extra -= 1;
+  }
+  return next;
+}
+
+function applyLockedCap(state: LotteryState): boolean {
   state.themes = hydrateThemes(state.themes);
   state.draws = Array.isArray(state.draws) ? state.draws : [];
-  if (state.draws.length > 0) return state;
+  const before = JSON.stringify(state.themes.map((theme) => [theme.quota, theme.remaining]));
+  const taken = takenCounts(state);
+  const totalTaken = taken.reduce((total, count) => total + count, 0);
+  if (totalTaken > PARTICIPANT_LIMIT) return false;
   const sum = state.themes.reduce((total, theme) => total + theme.quota, 0);
-  if (sum === PARTICIPANT_LIMIT) return state;
+  const quotas = sum === PARTICIPANT_LIMIT ? state.themes.map((theme) => theme.quota) : quotasTowardLimit(taken);
   state.themes = state.themes.map((theme, index) => ({
     ...theme,
-    quota: DEFAULT_QUOTAS[index],
-    remaining: DEFAULT_QUOTAS[index],
+    quota: quotas[index],
+    remaining: Math.max(0, quotas[index] - taken[index]),
   }));
-  return state;
+  return JSON.stringify(state.themes.map((theme) => [theme.quota, theme.remaining])) !== before;
 }
 
 function cloneState(state: LotteryState): LotteryState {
@@ -131,7 +164,8 @@ async function readFileState(): Promise<LotteryState> {
     const raw = await readFile(FILE_PATH, "utf8");
     const parsed = JSON.parse(raw) as LotteryState;
     if (!parsed?.themes?.length) return defaultState();
-    return applyLockedCap(parsed);
+    applyLockedCap(parsed);
+    return parsed;
   } catch {
     return defaultState();
   }
@@ -146,7 +180,7 @@ async function writeFileState(state: LotteryState) {
 
 async function loadPgState(
   query: typeof sql = sql,
-): Promise<{ state: LotteryState; version: number }> {
+): Promise<{ state: LotteryState; version: number; dirty: boolean }> {
   const rows = await query<{ data: LotteryState; version: number }>(
     "select data, version from lottery_kv where id = $1",
     ["main"],
@@ -160,7 +194,8 @@ async function loadPgState(
     return loadPgState(query);
   }
   const data = typeof rows[0].data === "string" ? JSON.parse(rows[0].data) : rows[0].data;
-  return { state: applyLockedCap(data), version: rows[0].version };
+  const dirty = applyLockedCap(data);
+  return { state: data, version: rows[0].version, dirty };
 }
 
 async function mutate<T>(fn: (state: LotteryState) => Promise<T> | T): Promise<T> {
@@ -190,7 +225,14 @@ async function mutate<T>(fn: (state: LotteryState) => Promise<T> | T): Promise<T
 
 async function readState(): Promise<LotteryState> {
   if (usePostgres) {
-    return (await loadPgState()).state;
+    const loaded = await loadPgState();
+    if (loaded.dirty) {
+      await mutate((state) => {
+        applyLockedCap(state);
+      });
+      return (await loadPgState()).state;
+    }
+    return loaded.state;
   }
   return withFileMutex(() => readFileState());
 }
@@ -373,6 +415,7 @@ export async function loginHost(pin: string) {
 export async function getHostState(session: string | undefined) {
   const state = cloneState(await readState());
   await requireHost(state, session);
+  const taken = takenCounts(state);
   return {
     opened: state.opened,
     locked: state.draws.length > 0,
@@ -380,13 +423,13 @@ export async function getHostState(session: string | undefined) {
     drawnCount: drawnCount(state),
     participantLimit: PARTICIPANT_LIMIT,
     remainingTotal: remainingTotal(state),
-    themes: state.themes.map((theme) => ({
+    themes: state.themes.map((theme, index) => ({
       id: theme.id,
       name: theme.name,
       description: theme.description,
       quota: theme.quota,
       remaining: theme.remaining,
-      taken: theme.quota - theme.remaining,
+      taken: taken[index],
     })),
   };
 }
@@ -422,15 +465,21 @@ export async function saveThemes(
 
   await mutate(async (state) => {
     await requireHost(state, session);
-    if (state.draws.length > 0) {
-      throw new LotteryError("已有人抽過，無法再改名額", "locked", 409);
+    const taken = takenCounts(state);
+    const blocked = taken.findIndex((count, index) => quotas[index] < count);
+    if (blocked >= 0) {
+      throw new LotteryError(
+        `「${state.themes[blocked].name}」已抽出 ${taken[blocked]} 人，名額不能比較少`,
+        "invalid_quotas",
+      );
     }
+    const started = state.draws.length > 0;
     state.themes = themes.map((theme, index) => ({
       id: state.themes[index]?.id ?? theme.id,
-      name: names[index],
-      description: descriptions[index],
+      name: started ? state.themes[index].name : names[index],
+      description: started ? state.themes[index].description : descriptions[index],
       quota: quotas[index],
-      remaining: quotas[index],
+      remaining: quotas[index] - taken[index],
     }));
     if (open) state.opened = true;
   });
