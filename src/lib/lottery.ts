@@ -1,11 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { hashSecret, randomToken, verifySecret } from "./crypto";
+import { hashSecret, randomToken, secretsMatch, verifySecret } from "./crypto";
 import { sql, withTransaction } from "./db";
 
-export const PARTICIPANT_LIMIT = 10;
+export const PARTICIPANT_LIMIT = 12;
 export const THEME_COUNT = 3;
-export const DEFAULT_QUOTAS = [4, 3, 3] as const;
+export const DEFAULT_QUOTAS = [4, 4, 4] as const;
 export const DEFAULT_THEMES = [
   {
     id: "a",
@@ -17,13 +17,13 @@ export const DEFAULT_THEMES = [
     id: "b",
     name: "生活升級計畫",
     description: "平常不一定會買，但收到後會覺得生活變得更方便、更有質感。",
-    quota: 3,
+    quota: 4,
   },
   {
     id: "c",
     name: "命運驚喜包",
     description: "不設限！只要是自己覺得有趣、值得分享，或能帶給別人驚喜的東西都可以。",
-    quota: 3,
+    quota: 4,
   },
 ] as const;
 
@@ -57,6 +57,9 @@ export type Draw = {
 export type LotteryState = {
   hostPinHash: string | null;
   hostSessionHash: string | null;
+  hostLoginFailures?: number;
+  hostLoginLockedUntil?: number | null;
+  hostPinAttempts?: Record<string, { failures: number; lockedUntil: number }>;
   opened: boolean;
   themes: Theme[];
   draws: Draw[];
@@ -106,6 +109,53 @@ function hydrateThemes(themes: Theme[] | undefined): Theme[] {
   });
 }
 
+function takenCounts(state: LotteryState): number[] {
+  return state.themes.map((theme) => state.draws.filter((draw) => draw.themeId === theme.id).length);
+}
+
+function quotasTowardLimit(taken: number[]): number[] {
+  const quotas = DEFAULT_QUOTAS.map((quota, index) => Math.max(quota, taken[index] ?? 0));
+  let sum = quotas.reduce((total, quota) => total + quota, 0);
+  if (sum === PARTICIPANT_LIMIT) return quotas;
+  if (sum < PARTICIPANT_LIMIT) {
+    let extra = PARTICIPANT_LIMIT - sum;
+    for (let index = 0; extra > 0; index += 1) {
+      quotas[index % THEME_COUNT] += 1;
+      extra -= 1;
+    }
+    return quotas;
+  }
+  const next = taken.map((count) => count);
+  let extra = PARTICIPANT_LIMIT - next.reduce((total, count) => total + count, 0);
+  for (let index = 0; index < THEME_COUNT && extra > 0; index += 1) {
+    const add = Math.min(extra, Math.max(0, DEFAULT_QUOTAS[index] - next[index]));
+    next[index] += add;
+    extra -= add;
+  }
+  for (let index = 0; extra > 0; index += 1) {
+    next[index % THEME_COUNT] += 1;
+    extra -= 1;
+  }
+  return next;
+}
+
+function applyLockedCap(state: LotteryState): boolean {
+  state.themes = hydrateThemes(state.themes);
+  state.draws = Array.isArray(state.draws) ? state.draws : [];
+  const before = JSON.stringify(state.themes.map((theme) => [theme.quota, theme.remaining]));
+  const taken = takenCounts(state);
+  const totalTaken = taken.reduce((total, count) => total + count, 0);
+  if (totalTaken > PARTICIPANT_LIMIT) return false;
+  const sum = state.themes.reduce((total, theme) => total + theme.quota, 0);
+  const quotas = sum === PARTICIPANT_LIMIT ? state.themes.map((theme) => theme.quota) : quotasTowardLimit(taken);
+  state.themes = state.themes.map((theme, index) => ({
+    ...theme,
+    quota: quotas[index],
+    remaining: Math.max(0, quotas[index] - taken[index]),
+  }));
+  return JSON.stringify(state.themes.map((theme) => [theme.quota, theme.remaining])) !== before;
+}
+
 function cloneState(state: LotteryState): LotteryState {
   return structuredClone(state);
 }
@@ -115,7 +165,7 @@ async function readFileState(): Promise<LotteryState> {
     const raw = await readFile(FILE_PATH, "utf8");
     const parsed = JSON.parse(raw) as LotteryState;
     if (!parsed?.themes?.length) return defaultState();
-    parsed.themes = hydrateThemes(parsed.themes);
+    applyLockedCap(parsed);
     return parsed;
   } catch {
     return defaultState();
@@ -131,7 +181,7 @@ async function writeFileState(state: LotteryState) {
 
 async function loadPgState(
   query: typeof sql = sql,
-): Promise<{ state: LotteryState; version: number }> {
+): Promise<{ state: LotteryState; version: number; dirty: boolean }> {
   const rows = await query<{ data: LotteryState; version: number }>(
     "select data, version from lottery_kv where id = $1",
     ["main"],
@@ -145,8 +195,8 @@ async function loadPgState(
     return loadPgState(query);
   }
   const data = typeof rows[0].data === "string" ? JSON.parse(rows[0].data) : rows[0].data;
-  data.themes = hydrateThemes(data.themes);
-  return { state: data, version: rows[0].version };
+  const dirty = applyLockedCap(data);
+  return { state: data, version: rows[0].version, dirty };
 }
 
 async function mutate<T>(fn: (state: LotteryState) => Promise<T> | T): Promise<T> {
@@ -176,7 +226,14 @@ async function mutate<T>(fn: (state: LotteryState) => Promise<T> | T): Promise<T
 
 async function readState(): Promise<LotteryState> {
   if (usePostgres) {
-    return (await loadPgState()).state;
+    const loaded = await loadPgState();
+    if (loaded.dirty) {
+      await mutate((state) => {
+        applyLockedCap(state);
+      });
+      return (await loadPgState()).state;
+    }
+    return loaded.state;
   }
   return withFileMutex(() => readFileState());
 }
@@ -311,10 +368,17 @@ async function requireHost(state: LotteryState, session: string | undefined) {
   }
 }
 
-export async function setupHost(pin: string) {
+export async function setupHost(pin: string, setupSecret: string) {
+  const expected = process.env.HOST_SETUP_SECRET?.trim() ?? "";
+  if (expected.length < 8) {
+    throw new LotteryError("主持人設定尚未就緒", "setup_unconfigured", 503);
+  }
+  if (!secretsMatch(setupSecret.trim(), expected)) {
+    throw new LotteryError("設定密鑰不正確", "invalid_setup_secret", 401);
+  }
   const cleaned = pin.trim();
-  if (!/^\d{4,8}$/.test(cleaned)) {
-    throw new LotteryError("PIN 請設 4 到 8 位數字", "invalid_pin");
+  if (!/^\d{6,8}$/.test(cleaned)) {
+    throw new LotteryError("PIN 請設 6 到 8 位數字", "invalid_pin");
   }
   const session = randomToken();
   await mutate(async (state) => {
@@ -327,24 +391,73 @@ export async function setupHost(pin: string) {
   return { session };
 }
 
-export async function loginHost(pin: string) {
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const MAX_PIN_ATTEMPT_KEYS = 64;
+
+function prunePinAttempts(state: LotteryState, now: number) {
+  const current = state.hostPinAttempts ?? {};
+  for (const [key, row] of Object.entries(current)) {
+    if (row.lockedUntil && row.lockedUntil <= now && row.failures <= 0) delete current[key];
+  }
+  const keys = Object.keys(current);
+  if (keys.length > MAX_PIN_ATTEMPT_KEYS) {
+    const extra = keys.length - MAX_PIN_ATTEMPT_KEYS;
+    const oldest = keys.sort((a, b) => (current[a].lockedUntil || 0) - (current[b].lockedUntil || 0));
+    for (let index = 0; index < extra; index += 1) delete current[oldest[index]];
+  }
+  state.hostPinAttempts = current;
+}
+
+export async function loginHost(pin: string, clientKey: string) {
   const cleaned = pin.trim();
   const session = randomToken();
-  await mutate(async (state) => {
+  const attemptKey = clientKey.slice(0, 32);
+  const outcome = await mutate(async (state) => {
+    const now = Date.now();
+    prunePinAttempts(state, now);
+    const attempts = state.hostPinAttempts ?? {};
+    const row = attempts[attemptKey];
+    if (row?.lockedUntil && row.lockedUntil > now) {
+      return { ok: false as const, code: "locked_out" as const };
+    }
     if (!state.hostPinHash) {
-      throw new LotteryError("尚未設定主持人 PIN", "not_setup", 401);
+      return { ok: false as const, code: "not_setup" as const };
     }
     if (!(await verifySecret(cleaned, state.hostPinHash))) {
-      throw new LotteryError("PIN 不正確", "invalid_pin", 401);
+      const failures = (row?.failures ?? 0) + 1;
+      if (failures >= LOGIN_MAX_FAILURES) {
+        attempts[attemptKey] = { failures: 0, lockedUntil: now + LOGIN_LOCKOUT_MS };
+      } else {
+        attempts[attemptKey] = { failures, lockedUntil: 0 };
+      }
+      state.hostPinAttempts = attempts;
+      return {
+        ok: false as const,
+        code: failures >= LOGIN_MAX_FAILURES ? ("locked_out" as const) : ("invalid_pin" as const),
+      };
     }
+    delete attempts[attemptKey];
+    state.hostPinAttempts = attempts;
     state.hostSessionHash = await hashSecret(session);
+    return { ok: true as const };
   });
+  if (!outcome.ok) {
+    if (outcome.code === "locked_out") {
+      throw new LotteryError("嘗試太多次，請 15 分鐘後再試", "locked_out", 429);
+    }
+    if (outcome.code === "not_setup") {
+      throw new LotteryError("尚未設定主持人 PIN", "not_setup", 401);
+    }
+    throw new LotteryError("PIN 不正確", "invalid_pin", 401);
+  }
   return { session };
 }
 
 export async function getHostState(session: string | undefined) {
   const state = cloneState(await readState());
   await requireHost(state, session);
+  const taken = takenCounts(state);
   return {
     opened: state.opened,
     locked: state.draws.length > 0,
@@ -352,13 +465,13 @@ export async function getHostState(session: string | undefined) {
     drawnCount: drawnCount(state),
     participantLimit: PARTICIPANT_LIMIT,
     remainingTotal: remainingTotal(state),
-    themes: state.themes.map((theme) => ({
+    themes: state.themes.map((theme, index) => ({
       id: theme.id,
       name: theme.name,
       description: theme.description,
       quota: theme.quota,
       remaining: theme.remaining,
-      taken: theme.quota - theme.remaining,
+      taken: taken[index],
     })),
   };
 }
@@ -372,8 +485,9 @@ export async function saveThemes(
     throw new LotteryError("需要剛好 3 個主題", "invalid_quotas");
   }
   const quotas = themes.map((theme) => Number(theme.quota));
-  if (quotas.some((quota) => !Number.isInteger(quota) || quota < 3 || quota > 4)) {
-    throw new LotteryError("每個主題名額只能是 3 或 4", "invalid_quotas");
+  const maxQuota = PARTICIPANT_LIMIT - (THEME_COUNT - 1);
+  if (quotas.some((quota) => !Number.isInteger(quota) || quota < 1 || quota > maxQuota)) {
+    throw new LotteryError(`每個主題名額請填 1 到 ${maxQuota} 的整數`, "invalid_quotas");
   }
   const sum = quotas.reduce((a, b) => a + b, 0);
   if (sum !== PARTICIPANT_LIMIT) {
@@ -393,15 +507,21 @@ export async function saveThemes(
 
   await mutate(async (state) => {
     await requireHost(state, session);
-    if (state.draws.length > 0) {
-      throw new LotteryError("已有人抽過，無法再改名額", "locked", 409);
+    const taken = takenCounts(state);
+    const blocked = taken.findIndex((count, index) => quotas[index] < count);
+    if (blocked >= 0) {
+      throw new LotteryError(
+        `「${state.themes[blocked].name}」已抽出 ${taken[blocked]} 人，名額不能比較少`,
+        "invalid_quotas",
+      );
     }
+    const started = state.draws.length > 0;
     state.themes = themes.map((theme, index) => ({
       id: state.themes[index]?.id ?? theme.id,
-      name: names[index],
-      description: descriptions[index],
+      name: started ? state.themes[index].name : names[index],
+      description: started ? state.themes[index].description : descriptions[index],
       quota: quotas[index],
-      remaining: quotas[index],
+      remaining: quotas[index] - taken[index],
     }));
     if (open) state.opened = true;
   });

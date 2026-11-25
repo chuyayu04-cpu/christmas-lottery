@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import HostDesk from "./host/host-desk";
 
 type Mine = { displayName: string; themeName: string; themeDescription?: string };
 type PublicState = {
@@ -55,6 +55,7 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [mine, setMine] = useState<Mine | null>(null);
   const [phase, setPhase] = useState<"form" | "drawing" | "wrapped" | "opening" | "revealed">("form");
+  const [showHost, setShowHost] = useState(false);
 
   async function refresh() {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -121,6 +122,10 @@ export default function HomePage() {
     }, 1400);
   }
 
+  if (showHost) {
+    return <HostDesk onBack={() => setShowHost(false)} />;
+  }
+
   const waiting = state && !state.opened && phase === "form" && !mine;
   const giftMode =
     phase === "drawing"
@@ -140,9 +145,9 @@ export default function HomePage() {
       <p className="lede">每人只能抽一次。抽中後先是一份還沒打開的禮物，點下去才看得到主題，而且只有你看得到。</p>
       <div className="progress">
         <span>
-          已抽出 {state?.drawnCount ?? 0} / {state?.participantLimit ?? 10} 人
+          已抽出 {state?.drawnCount ?? 0} / {state?.participantLimit ?? 12} 人
         </span>
-        <span>剩餘 {state?.remainingTotal ?? 10} 個名額</span>
+        <span>剩餘 {state?.remainingTotal ?? 12} 個名額</span>
       </div>
 
       <section className="card">
@@ -210,9 +215,9 @@ export default function HomePage() {
           </form>
         )}
       </section>
-      <Link className="footer-link" href="/host">
+      <button type="button" className="footer-link" onClick={() => setShowHost(true)}>
         我是主持人
-      </Link>
+      </button>
     </main>
   );
 }

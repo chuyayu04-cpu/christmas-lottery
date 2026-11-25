@@ -1,4 +1,13 @@
-import { assertSameOrigin, errorResponse, getCookie, json, rateLimit, setCookie } from "@/lib/http";
+import {
+  assertSameOrigin,
+  clientKey,
+  errorResponse,
+  getCookie,
+  json,
+  rateLimit,
+  readJsonBody,
+  setCookie,
+} from "@/lib/http";
 import {
   getHostState,
   hostStatus,
@@ -13,6 +22,8 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const HOST_BODY_MAX = 8 * 1024;
+
 function sessionOf(request: Request) {
   return getCookie(request, "host_session");
 }
@@ -20,9 +31,13 @@ function sessionOf(request: Request) {
 export async function GET(request: Request) {
   try {
     const status = await hostStatus();
-    if (!status.setup) return json({ setup: false, authenticated: false });
+    if (!status.setup) {
+      return json({ setup: false, authenticated: false });
+    }
     const session = sessionOf(request);
-    if (!session) return json({ setup: true, authenticated: false });
+    if (!session) {
+      return json({ setup: true, authenticated: false });
+    }
     const state = await getHostState(session);
     return json({ setup: true, authenticated: true, ...state });
   } catch (error) {
@@ -33,24 +48,28 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    const body = (await request.json()) as {
+    const key = clientKey(request);
+    const body = await readJsonBody<{
       action?: string;
       pin?: string;
+      setupSecret?: string;
       themes?: { id: string; name: string; quota: number }[];
       open?: boolean;
-    };
+    }>(request, HOST_BODY_MAX);
     const action = body.action ?? "";
 
     if (action === "setup") {
-      rateLimit(request, "host-setup", 8, 60_000);
-      const { session } = await setupHost(String(body.pin ?? ""));
+      rateLimit(`host-setup:${key}`, 5, 15 * 60_000);
+      rateLimit("host-setup", 40, 15 * 60_000);
+      const { session } = await setupHost(String(body.pin ?? ""), String(body.setupSecret ?? ""));
       const response = json({ ok: true });
       setCookie(response, "host_session", session);
       return response;
     }
     if (action === "login") {
-      rateLimit(request, "host-login", 8, 60_000);
-      const { session } = await loginHost(String(body.pin ?? ""));
+      rateLimit(`host-login:${key}`, 8, 15 * 60_000);
+      rateLimit("host-login", 80, 15 * 60_000);
+      const { session } = await loginHost(String(body.pin ?? ""), key);
       const response = json({ ok: true });
       setCookie(response, "host_session", session);
       return response;

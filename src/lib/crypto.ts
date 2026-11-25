@@ -1,4 +1,4 @@
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 
 const scryptAsync = promisify(scrypt);
@@ -21,4 +21,14 @@ export async function verifySecret(secret: string, stored: string): Promise<bool
   const derived = (await scryptAsync(secret, salt, 32)) as Buffer;
   if (derived.length !== expected.length) return false;
   return timingSafeEqual(derived, expected);
+}
+
+export function hashId(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function secretsMatch(provided: string, expected: string): boolean {
+  const left = createHash("sha256").update(provided).digest();
+  const right = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(left, right);
 }
