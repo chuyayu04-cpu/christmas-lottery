@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
 import { LotteryError } from "./lottery";
+import { hashId } from "./crypto";
 
 export function json(data: unknown, status = 200): Response {
   return Response.json(data, {
@@ -115,7 +115,7 @@ function pruneHits(now: number) {
   for (let i = 0; i < extra; i += 1) hits.delete(oldest[i][0]);
 }
 
-/** Named buckets. Do not key on client-controlled headers such as X-Forwarded-For. */
+/** Named buckets. Per-client keys must come from clientKey(), not a client-chosen cookie. */
 export function rateLimit(key: string, limit: number, windowMs: number) {
   const now = Date.now();
   pruneHits(now);
@@ -130,12 +130,68 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
   }
 }
 
-export function visitorId(request: Request): { id: string; isNew: boolean } {
-  const existing = getCookie(request, "rl");
-  if (existing && existing.length >= 24) return { id: existing, isNew: false };
-  return { id: randomBytes(16).toString("hex"), isNew: true };
+function lastClientIp(request: Request): string {
+  const forwarded = request.headers.get("forwarded");
+  if (forwarded) {
+    const parts = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
+    const last = parts[parts.length - 1];
+    const match = /(?:^|;)\s*for="?\[?([^\]";]+)/i.exec(last ?? "");
+    if (match?.[1]) return match[1].replace(/^"|"$/g, "").trim();
+  }
+  const xff = request.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  return "unknown";
 }
 
-export function attachVisitor(response: Response, id: string) {
-  setCookie(response, "rl", id);
+/** Last proxy hop plus server-set cookies. Not a client-chosen cookie. */
+export function clientKey(request: Request): string {
+  const ip = lastClientIp(request);
+  const session = getCookie(request, "host_session") ?? getCookie(request, "lottery_token") ?? "";
+  return hashId(`${ip}\0${session}`);
+}
+
+export async function readJsonBody<T>(request: Request, maxBytes: number): Promise<T> {
+  const declared = request.headers.get("content-length");
+  if (declared != null && declared !== "") {
+    const length = Number(declared);
+    if (!Number.isFinite(length) || length < 0 || length > maxBytes) {
+      throw new LotteryError("請求太大", "payload_too_large", 413);
+    }
+  }
+  const reader = request.body?.getReader();
+  if (!reader) {
+    throw new LotteryError("請求格式不正確", "bad_json", 400);
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new LotteryError("請求太大", "payload_too_large", 413);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    throw new LotteryError("請求格式不正確", "bad_json", 400);
+  }
 }
